@@ -2,6 +2,7 @@
 # This script covers the analysis of Toboggan Creek smolt data 
 
 #Created: 7-Feb-2023
+#update 9-April-2025 to incorporate strat popn estimate for 2024 smolt
 # By : Kristen Peck
 
 # Libraries
@@ -14,64 +15,397 @@ library(recapr)
 options(scipen=999)
 
 # Load the data 
-year.summaries <- read_excel("Toboggan-YearSummaries_COPY7-Feb-2023.xlsx", sheet="TobogganFence")
+year.summaries <- read_excel("Toboggan-YearSummaries_COPY3-Dec-2024.xlsx", sheet="TobogganFence")
 
 cwt <- year.summaries %>% 
   select(year=Year,CWTreleased) 
 
-effort <- read_excel("Toboggan_smolt_dataentry_COPY7-Feb-2023.xlsx", sheet="effort") %>% 
-  mutate(year = year(date))
-fish <- read_excel("Toboggan_smolt_dataentry_COPY7-Feb-2023.xlsx", sheet="individualfish") %>% 
-  mutate(year=year(date),arrive.hr = hour(arrival_time), arrive.min = minute(arrival_time),
-         arrive.datetime = ymd_hm(paste(date,arrive.hr,arrive.min))) %>% 
-  mutate(julian = yday(date), fake.date = as_date(julian, origin = "2022-01-01"))
+# CWT retention log ####
+CWT24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy05-Jan-2026.xlsx", 
+                       sheet="cwt_log") %>% 
+  mutate(iso.week = isoweek(tag_date),
+         mort_n = ifelse(is.na(mort_n),0,mort_n),
+         sacrifice_n = ifelse(is.na(sacrifice_n),0,sacrifice_n))
+str(CWT24)
 
-str(effort)
-str(fish)
+unique(CWT24$tag_code)
+
+CWTretention24 <- CWT24 %>% 
+  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
+  group_by(iso.week) %>% 
+  summarize(weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
+                                      mean(retention.rt, na.rm=T)))
+
+CWTretention24bycode <- CWT24 %>% 
+  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
+  group_by(tag_code) %>% 
+  summarize(n = sum(r_sample_size, na.rm=T),n.retained = sum(r_retention_n, na.rm=T),
+            weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
+                                      mean(retention.rt, na.rm=T)))
+CWTretention24bycode
+
+tag.summary <- CWT24 %>% 
+  left_join(CWTretention24, by="iso.week") %>%
+  mutate(retained.est = (inj_n-mort_n-sacrifice_n)*weekly.retention) %>% 
+  group_by(tag_code) %>% 
+  summarize(injected = sum(inj_n-mort_n-sacrifice_n),est.retained = round(sum(retained.est),0)) %>%
+  mutate(estd.lost = injected-est.retained)
+  #write_csv("CWT24.csv")
+tag.summary
+
+ave.CWTmeristics24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy05-Jan-2026.xlsx", 
+                            sheet="individualfish") %>% 
+  group_by(tag_code) %>% 
+  summarize(n.measured = length(!is.na(fork_length_mm)), ave.FL = mean(fork_length_mm, na.rm=T),
+            ave.wt = mean(weight_g, na.rm=T))
+ave.CWTmeristics24
+
+
+
+# table summary of fish and size by tag code:
+
+size.headmold.key24 <- data.frame(head_mold_size = c(NA,unique(CWT24$head_mold_size)),
+                                category = c("little","small","big","bigger"),
+                                length_range_mm = c("<70","70-85","86-115","116-190"))
+
+CWT.summary24 <- CWT24 %>% 
+  left_join(CWTretention24, by="iso.week") %>%
+  mutate(retained.est = (inj_n-mort_n-sacrifice_n)*weekly.retention) %>% 
+  group_by(tag_code, head_mold_size) %>% 
+  summarize(injected = sum(inj_n-mort_n-sacrifice_n),est.retained = round(sum(retained.est),0),
+            perc.retention = round(est.retained/injected,2)*100) %>%
+  left_join(size.headmold.key24, by = "head_mold_size") %>% 
+  select(-category, -head_mold_size) 
+  #mutate(estd.lost = injected-est.retained)
+CWT.summary24
+#write_csv(CWT.summary24, "CWT.summary24.csv")
+
+
+
+# do this again with just the raw individual fish data rather than the CWT retention log
+
+# Indiv fish - remake into first tagging and recap in same columns with sacrifice or mort noted ####
+fish24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy05-Jan-2026.xlsx", 
+                    sheet="individualfish") %>% 
+  filter(species %in% "co-w", size_cwt %in% c(NA, "small","big","bigger","biggest")) %>% 
+  mutate(fate = ifelse(!is.na(sacrifice),"sacrifice",
+                             ifelse(!is.na(mort),"mort","live"))) %>% 
+  mutate(tag.status = ifelse(!is.na(a_adclip)&fate%in%"live","A",
+                             ifelse(!is.na(r_adclip),"R",NA))) %>% 
+  mutate(isoweek = isoweek(date)) #this week starts on a monday, which matches our mark switch day
+
+
+# mark summary tables ####
+
+mark.summary <- fish24 %>% 
+                mutate(first.day.of.week = format(as.Date(paste0(year,"-",isoweek,"-",1),"%Y-%W-%u"),"%b-%d")) %>% 
+                group_by(isoweek,first.day.of.week) %>% 
+                summarize(new.tags = sum(ifelse(tag.status %in% "A", count, 0), na.rm = TRUE), 
+                          recaps = sum(ifelse(tag.status %in% "R", count, 0), na.rm = TRUE),
+                          unmarked = sum(ifelse(is.na(tag.status), count, 0), na.rm = TRUE),
+                          sacrifices = sum(ifelse(fate %in% "sacrifice", count, 0), na.rm = TRUE), 
+                          mort = sum(ifelse(fate %in% "mort", count, 0), na.rm = TRUE) )
+mark.summary
+
+mark.summary.barn <- fish24 %>% 
+  filter(site %in% "barn") %>% 
+  mutate(first.day.of.week = format(as.Date(paste0(year,"-",isoweek,"-",1),"%Y-%W-%u"),"%b-%d")) %>% 
+  group_by(isoweek, first.day.of.week) %>% 
+  summarize(new.tags = sum(ifelse(tag.status %in% "A", count, 0), na.rm = TRUE), 
+            recaps = sum(ifelse(tag.status %in% "R", count, 0), na.rm = TRUE),
+            unmarked = sum(ifelse(is.na(tag.status), count, 0), na.rm = TRUE),
+            sacrifices = sum(ifelse(fate %in% "sacrifice", count, 0), na.rm = TRUE), 
+            mort = sum(ifelse(fate %in% "mort", count, 0), na.rm = TRUE) )
+mark.summary.barn
+
+mark.summary.fence <- fish24 %>% 
+  filter(site %in% "fence") %>% 
+  mutate(first.day.of.week = format(as.Date(paste0(year,"-",isoweek,"-",1),"%Y-%W-%u"),"%b-%d")) %>% 
+  group_by(isoweek,first.day.of.week) %>% 
+  summarize(new.tags = sum(ifelse(tag.status %in% "A", count, 0), na.rm = TRUE), #note that these exclude sacrifices/morts
+            recaps = sum(ifelse(tag.status %in% "R", count, 0), na.rm = TRUE), #note that these include sacrifices/morts
+            unmarked = sum(ifelse(is.na(tag.status), count, 0), na.rm = TRUE),
+            sacrifices = sum(ifelse(fate %in% "sacrifice", count, 0), na.rm = TRUE), 
+            mort = sum(ifelse(fate %in% "mort", count, 0), na.rm = TRUE) )
+mark.summary.fence
+
+# CWT tag summary - individuals ####
+
+CWTlog.indiv24 <- fish24 %>% 
+  filter(!is.na(tag_code), fate %in% "live") %>% 
+  group_by(isoweek,date, site, tag_code, `head mold (lbs)`) %>% 
+  summarize(inj_n = sum(ifelse(!is.na(tag_code),count,0), na.rm = TRUE))   #note that in this version, sacrifices and morts are not included in injected
+  
+CWTlog.indiv24
+
+CWTretention24raw <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy05-Jan-2026.xlsx", 
+                    sheet="cwt_log") %>% 
+  select(-c(head_mold_size,inj_n, mort_n, sacrifice_n)) %>% 
+  mutate(isoweek = isoweek(tag_date), retention.rt = r_retention_n/r_sample_size)
+  
+CWTretags <- CWTretention24raw %>% 
+  filter(r_re_tagged_n > 0) %>% 
+  select(isoweek, tag_code, r_re_tagged_n) %>% 
+  group_by(tag_code) %>% 
+  summarize(n_retagged = sum(r_re_tagged_n))
+  
+
+CWTretention24 <- CWTretention24raw %>% 
+  group_by(isoweek) %>% 
+  summarize(weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
+                                      mean(retention.rt, na.rm=T)))
+
+CWTlog.indiv24summary <- CWTlog.indiv24 %>% 
+  left_join(CWTretention24, by="isoweek") %>%
+  mutate(retained.est = inj_n*weekly.retention) %>% 
+  group_by(tag_code) %>% 
+  summarize(injected = sum(inj_n),est.retained = round(sum(retained.est),0)) %>%
+  mutate(estd.lost = injected-est.retained) %>% 
+  left_join(CWTretags) %>% 
+  mutate(n_retagged=ifelse(is.na(n_retagged),0,n_retagged), 
+         est.oceanreleases = est.retained+n_retagged)
+#write_csv(CWTlog.indiv24summary,"CWT24logindiv.csv")
+
+CWTlog.indiv24summary
+
+ave.CWTmeristics24 <- fish24 %>% 
+  group_by(tag_code) %>% 
+  summarize(n.measured = length(!is.na(fork_length_mm)), ave.FL = round(mean(fork_length_mm, na.rm=T),1),
+            sd.FL = round(sd(fork_length_mm, na.rm=T),1), ave.wt = round(mean(weight_g, na.rm=T),1),
+            sd.wt = round(sd(weight_g, na.rm=T),1))
+ave.CWTmeristics24
+
+CWT.tag.summary2024 <- CWTlog.indiv24summary %>% 
+  left_join(ave.CWTmeristics24, by="tag_code") %>% 
+  arrange(ave.FL)
+CWT.tag.summary2024
+
+#write_csv(CWT.tag.summary2024,"CWT.tag.summary2024.csv")
+
+
+#### Mark-recapture estimates ####
+
+##### simple Petersen #####
+
+(m <- fish24 %>% 
+  filter(site %in% "barn",tag.status %in% "A") %>% 
+  summarize(m = sum(count, na.rm=T)))
+
+(r <- fish24 %>% 
+  filter(site %in% "fence", tag.status %in% "R") %>% 
+  summarize(r = sum(count, na.rm=T)))
+
+(c <- fish24 %>% 
+  filter(site %in% "fence") %>% 
+  summarize(c = sum(count, na.rm=T)))
+
+recapr::NChapman(m,c,r)
+recapr::vChapman(m,c,r)
+recapr::seChapman(m,c,r)
+  
+#trap efficiency of fence RST
+c/NChapman(m,c,r)*100
+
+##### SPAS #####
+#weekly stratified estimator
+
+mf.min.recap <- 20
+
+mark.summary.barn %>% 
+  select(isoweek,new.tags) 
+  
+
+  
+  
+as.matrix()
+
+#### 2025 ####
+#tagging and retention summary 
+
+#did a better job of doing retention checks by size and also 
+#applying tags by size
+CWT25 <- read_excel("toboggan_smolt_dataentry_2025_copy28-Aug-2025.xlsx", 
+                    sheet="cwt_log") %>% 
+  mutate(iso.week = isoweek(tag_date), 
+         mort_n = ifelse(is.na(mort_n),0,mort_n),
+         sacrifice_n = ifelse(is.na(sacrifice_n),0,sacrifice_n)) 
+str(CWT25)
+
+CWTretention25 <- CWT25 %>% 
+  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
+  group_by(iso.week, head_mold_size) %>% 
+  summarize(weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
+                                      mean(retention.rt, na.rm=T)))
+
+CWT25 %>% 
+  left_join(CWTretention25, by=c("iso.week","head_mold_size")) %>%
+  mutate(retained.est = (inj_n-mort_n-sacrifice_n)*weekly.retention) %>% 
+  group_by(tag_code) %>% 
+  summarize(injected = sum(inj_n-mort_n-sacrifice_n),est.retained = round(sum(retained.est),0)) %>% 
+  mutate(estd.lost = injected-est.retained)
+
+CWTretention25bycode <- CWT25 %>% #do not use, rather use the weighted retention by week above
+  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
+  group_by(tag_code) %>% 
+  summarize(n = sum(r_sample_size, na.rm=T),n.retained = sum(r_retention_n, na.rm=T),
+            n.lost = n-n.retained,
+            weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
+                                      mean(retention.rt, na.rm=T)))
+CWTretention25bycode
+
+ave.meristics25 <- read_excel("toboggan_smolt_dataentry_2025_copy28-Aug-2025.xlsx", 
+                            sheet="individualfish") %>% 
+  group_by(tag_code) %>% 
+  summarize(n.measured = length(!is.na(fork_length_mm)), ave.FL = mean(fork_length_mm, na.rm=T),
+            ave.wt = mean(weight_g, na.rm=T))
+ave.meristics25
+
+
+
+             
+##### Effort ####
+
+effort24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Dec-2025.xlsx", 
+                     sheet="effort",
+                     col_types = c("guess","date","text","text","text",
+                                   "date","date","guess","guess",
+                                   "guess","guess","guess","guess"
+                                   )) %>% 
+  mutate(year = year(date), 
+         arrival.hr = substr(arrival_time_24h,12,13), 
+         arrival.min = substr(arrival_time_24h,15,16),
+         depart.hr = substr(departure_time_24h,12,13), 
+         depart.min = substr(departure_time_24h,15,16),
+         arrival.datetime = ymd_hm(paste(date,arrival.hr,arrival.min,sep="-")),
+         depart.datetime = ymd_hm(paste(date,depart.hr,depart.min,sep="-")),
+         duration = depart.datetime-arrival.datetime,
+         isoweek = isoweek(date))
+         #crew.duration = duration*crew.members)
+
+##### Individual fish ####
+
+fish <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Dec-2025.xlsx", 
+                   sheet="individualfish") %>% 
+  mutate(year=year(date),arrive.hr = hour(arrival_time_24h), 
+         arrive.min = minute(arrival_time_24h),
+         arrive.datetime = ymd_hm(paste(date,arrive.hr,arrive.min)),
+         isoweek = isoweek(date),julian = yday(date)) %>% 
+  mutate(fake.date = as_date(julian-1, origin = "2024-01-01")) 
+
+
+
+
 
 # summarize effort:
 
-effort %>% 
+effort24 %>% 
   group_by(year) %>% 
   summarize(start.date = as_date(first(date)), 
             finish.date = as_date(last(date)),
-            days.total = length(unique(date)))
+            days.total = length(unique(date)),
+            duration.total = sum(duration, na.rm=T)/60)
 
-#timing of adipose and wild co captures through season:
-unique(fish$species)
-
-(fish.sum <- fish %>% 
-  group_by(year) %>% 
-  summarize(total.co.w = length(which(species %in% "co-w")),
-            total.co.a = length(which(species %in% "co-a")),
-            total.co.f = length(which(species %in% "co-f"))))
-
-co.fish <- fish %>% 
-  filter(species %in% c("co-f","co-w","co-a")) %>% 
-  group_by(date,fake.date, year) %>% 
-  summarize(daily.co.w = length(which(species %in% "co-w")),
-            daily.co.a = length(which(species %in% "co-a")),
-            daily.co.f = length(which(species %in% "co-f"))) %>% 
-  left_join(fish.sum, by= "year") %>% 
-  mutate(prop.daily.co.w = daily.co.w/total.co.w,
-         prop.daily.co.a = daily.co.a/total.co.a,
-         prop.daily.co.f = daily.co.f/total.co.f)
+ggplot(effort24)+
+  geom_bar(aes(x=date,y=duration, fill=type), stat="identity")
 
 
+#### summarize fish marking/recapture ####
+
+#QA checks - are there any fish with A and R? Fix
+#Recode size into categories
+
+fish %>% 
+  filter(!is.na(a_adclip)&!is.na(r_adclip))
+#should be 0
+
+fish.co.w <- fish %>% 
+  filter(species %in% "co-w") %>% 
+  mutate(mark.status = ifelse(!is.na(a_adclip),"A",
+                               ifelse(!is.na(r_adclip),"R",NA)),
+         size_cwt.calc = ifelse(fork_length_mm < 70, "little",
+                                ifelse(fork_length_mm>=70&fork_length_mm<=85, "small",
+                                       ifelse(fork_length_mm>=86&fork_length_mm<=115, "big",
+                                              ifelse(fork_length_mm>=116, "bigger", NA)))),
+         size_cwt = ifelse(is.na(size_cwt),size_cwt.calc))
+tmp <- fish.co.w %>% 
+  select(date, site, fork_length_mm, size_cwt, size_cwt.calc)
+
+tmp[which(tmp$size_cwt!=tmp$size_cwt.calc),]
 
 
-plot.co.timing <- ggplot(co.fish)+
-  geom_point(aes(x=fake.date, y=prop.daily.co.w), col="black")+
-  geom_point(aes(x=fake.date, y=prop.daily.co.a), col="blue")+
-  geom_line(aes(x=fake.date, y=prop.daily.co.w), col="black")+
-  geom_line(aes(x=fake.date, y=prop.daily.co.a), col="blue")+
-  facet_wrap(~year, nrow=3)+
-  scale_x_date(date_breaks = "1 week",date_labels = "%b-%d", 
-               minor_breaks = "1 week")+
-  labs(fill="", x="date", y="proportion of coho per day (black=wild, blue=hatchery)")
 
-plot.co.timing
-ggsave(plot.co.timing, filename = "plot.co.timing.png",width = 6, height = 4)
+#Recode weekly mark
+
+
+
+
+
+
+  
+
+# (fish.sum <- fish %>% 
+#   group_by(year) %>% 
+#   summarize(total.co.w = length(which(species %in% "co-w")),
+#             total.co.a = length(which(species %in% "co-a")),
+#             total.co.f = length(which(species %in% "co-f"))))
+
+
+co.new <- fish %>% 
+  filter(species %in% c("co-w") & a_adclip %in% c("yes")) %>% 
+  group_by(fake.date,site) %>% 
+  summarize(total.marked = sum(count))
+
+co.recaps <- fish %>% 
+  filter(r_adclip %in% c("yes")) %>% 
+  group_by(fake.date, site) %>% 
+  summarize(total.recaps = sum(count)) %>% 
+  full_join(co.new) 
+  
+co.fish.stack <- co.recaps %>% 
+  ungroup() %>% 
+  select(fake.date, site, total.marked, total.recaps) %>% 
+  pivot_longer(!c(fake.date, site), names_to="status",values_to = "count")
+
+
+
+# co.fish <- fish %>%
+#   ungroup() %>% 
+#   filter(species %in% c("co-w","co-a")) %>% 
+#   group_by(date,fake.date, site) %>% 
+#   summarize(daily.co.w = ifelse(species %in% "co-w", sum(count),
+#                               NA)) %>% 
+#   left_join(fish.sum, by= "year") %>% 
+#   mutate(prop.daily.co.w = daily.co.w/total.co.w,
+#          prop.daily.co.a = daily.co.a/total.co.a,
+#          prop.daily.co.f = daily.co.f/total.co.f)
+
+
+plot.co.daily <- ggplot(co.fish.stack)+
+  geom_bar(stat="identity",aes(x=fake.date, y=count, fill=status))+
+  facet_wrap(~site, nrow=2)+
+  labs(x="date",y="daily count", fill="")+
+  theme_bw()+
+  scale_x_date(date_breaks="1 week", date_labels = "%d-%b")+
+  theme(axis.text.x = element_text(hjust=1, angle=45))+
+  theme(legend.position = "bottom")
+plot.co.daily
+
+ggsave(plot=plot.co.daily, filename = "plot.co.daily.png",
+       width=6, height=4)
+
+
+# plot.co.timing <- ggplot(co.fish)+
+#   geom_point(aes(x=fake.date, y=prop.daily.co.w), col="black")+
+#   geom_point(aes(x=fake.date, y=prop.daily.co.a), col="blue")+
+#   geom_line(aes(x=fake.date, y=prop.daily.co.w), col="black")+
+#   geom_line(aes(x=fake.date, y=prop.daily.co.a), col="blue")+
+#   facet_wrap(~year, nrow=3)+
+#   scale_x_date(date_breaks = "1 week",date_labels = "%b-%d", 
+#                minor_breaks = "1 week")+
+#   labs(fill="", x="date", y="proportion of coho per day (black=wild, blue=hatchery)")
+# 
+# plot.co.timing
+# ggsave(plot.co.timing, filename = "plot.co.timing.png",width = 6, height = 4)
 
 
 # estimate LP from marked (adipose-clipped) and wild coho
