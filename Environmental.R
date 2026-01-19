@@ -21,6 +21,9 @@ simp.flows.hist.raw <- hy_daily_flows(station_number = "08EE012",
                                       start_date= "2024-01-01")
 range(simp.flows.hist.raw$Date)
 
+simp.lvl.hist.raw <- hy_daily_levels(station_number = "08EE012",
+                                      start_date= "2024-01-01")
+range(simp.lvl.hist.raw$Date)
 
 # if neither of these have the date range we are seeking...
 # go to website and download csv of discharge unit values as csv: 
@@ -68,3 +71,40 @@ plot.daily.co.smolt
 
 # ggsave(plot=plot.daily.co.smolt, filename = "plot.daily.discharge.smolt.24.png",
 #        width=6, height=4)
+
+#compare env readings at traps to env canada station:
+
+env24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Jan-2026.xlsx", 
+                    sheet="effort") %>% 
+  mutate(date = as_date(date), 
+         date_time = ymd_hms(paste0(date,"-",
+                                    substr(arrival_time_24h,12,19))))
+
+env24daily <- env24 %>% 
+  group_by(date, site) %>% 
+  summarize(daily.level = mean(water_level_m, na.rm=T),
+            ave.temp.water = mean(water_temp_c, na.rm=T))
+
+ggplot(env24daily[env24daily$site%in%"fence",])+
+  geom_point(aes(x=date,y=daily.level+.4, col=site))+
+  geom_line(data=simp.lvl.hist.raw, aes(x=Date, y=Value))+
+  scale_x_date(limits = c(ymd("2024-05-01"),ymd("2024-06-30")), 
+               date_breaks = "1 week", date_labels = "%b-%d")+
+  theme_bw()
+
+plot.water.temp24 <- ggplot(env24)+
+  geom_line(aes(x=date_time,y=water_temp_c, col=site, linetype=type))+
+  geom_point(aes(x=date_time,y=water_temp_c, col=site, shape=type))+
+  scale_x_date(limits = c(ymd("2024-05-01"),ymd("2024-06-30")), 
+               date_breaks = "1 week", date_labels = "%b-%d")+
+  theme_bw()+
+  theme(axis.text.x = element_text(hjust=1, angle=45))+
+  labs(x="Date", y=expression("Water Temperature ("^o*"C)"), linetype="",
+       shape="", col="Site")
+plot.water.temp24
+
+# ggsave(plot = plot.water.temp24, filename = "plot.water.temp24.png",
+#        width = 6,height=4)
+
+summary(lm(ave.temp.water~date+site, data=env24daily))
+
