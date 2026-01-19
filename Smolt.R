@@ -316,7 +316,7 @@ mark.recaps24.weekly <- mark.recaps24barn.weekly %>%
   left_join(mark.recaps24fence.weekly)
 
 
-
+#bah, having too much trouble getting anything except the diagonal. Doing this manually:
 setupfile_TBC2024.csv <- textConnection("
   8,  2,  0,  0,  0,  0,  0,  0,  52
   0,  4,  14, 0,  0,  0,  0,  0,  28
@@ -385,52 +385,104 @@ report
 
 
 #### 2025 ####
-#tagging and retention summary 
+ 
+# note that a bunch of changes were made for 2025 after 2024 - co-a was used to 
+# identify any adipose clipped fish, and the caudal clip and location was used 
+# to ID them between hatchery and wild recaps. Also there was the Friday Fish 
+# event, where the CWT taggers were down for a few days and fish from the barn were
+# released with only a top caudal clip. Any recaps were subsequently tagged on 
+# RECAPTURE at the fence. The barn trap also shut down earlier than the Fence trap
+# because the landowner requested that happen. To compensate, unmarked fish caught at the 
+# Fence were caudal clipped and transported upstream to be released at the barn site, 
+# therefore becoming "barn" fish. So those fish (after June 16th) were both in the C of the fence 
+# and also the M of the barn. 
+# Fish size class was tidied up and reclassified to more obviously named categories based on 
+# head mold bracket, and retention checks were done for each size class
 
-#did a better job of doing retention checks by size and also 
-#applying tags by size
-CWT25 <- read_excel("toboggan_smolt_dataentry_2025_copy28-Aug-2025.xlsx", 
-                    sheet="cwt_log") %>% 
-  mutate(iso.week = isoweek(tag_date), 
+
+
+##### CWT retention ####
+
+CWT25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx",
+                    sheet="cwt_log") %>%
+  mutate(isoweek = isoweek(tag_date),
          mort_n = ifelse(is.na(mort_n),0,mort_n),
-         sacrifice_n = ifelse(is.na(sacrifice_n),0,sacrifice_n)) 
+         sacrifice_n = ifelse(is.na(sacrifice_n),0,sacrifice_n))
 str(CWT25)
 
 CWTretention25 <- CWT25 %>% 
-  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
-  group_by(iso.week, head_mold_size) %>% 
+  filter(!is.na(r_check_date)) %>% 
+  select(-c(inj_n,mort_n,sacrifice_n)) %>% 
+  mutate(retention.rt = r_retention_n/r_sample_size) %>%
+  group_by(isoweek, head_mold_size, tag_code) %>%
   summarize(weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
-                                      mean(retention.rt, na.rm=T)))
+                                        mean(retention.rt, na.rm=T)),
+            n.retagged = sum(r_re_tagged_n))
+CWTretention25 
 
-CWT25 %>% 
-  left_join(CWTretention25, by=c("iso.week","head_mold_size")) %>%
-  mutate(retained.est = (inj_n-mort_n-sacrifice_n)*weekly.retention) %>% 
+n.retagged25 <- CWTretention25 %>% 
   group_by(tag_code) %>% 
-  summarize(injected = sum(inj_n-mort_n-sacrifice_n),est.retained = round(sum(retained.est),0)) %>% 
-  mutate(estd.lost = injected-est.retained)
+  summarize(n.retagged = sum(n.retagged))
 
-CWTretention25bycode <- CWT25 %>% #do not use, rather use the weighted retention by week above
-  mutate(retention.rt = r_retention_n/r_sample_size) %>% 
+#size and headmold key
+
+size.headmold.key25 <- data.frame(head_mold_size = c(NA,unique(CWT25$head_mold_size)),
+                                  category = c("XS","S","M","L"),
+                                  length_range_mm = c("<70","70-85","86-115","116-190"))
+
+# Indiv fish - remake into first tagging and recap in same columns with sacrifice or mort noted ####
+fish25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx", 
+                     sheet="individualfish") %>% 
+  filter(species %in% c("co-w","co-a"), size_cwt %in% c(NA, "S","M","L")) %>% 
+  mutate(fate = ifelse(!is.na(sacrifice),"sacrifice",
+                       ifelse(!is.na(mort),"mort","live"))) %>% 
+  mutate(tag.status = ifelse(!is.na(a_adclip) & fate %in% "live","A",
+                             ifelse(!is.na(r_adclip),"R",NA))) %>% 
+  mutate(isoweek = isoweek(date), yday = yday(date),week.yday = as.numeric(paste0(isoweek,".",yday)),
+         head_mold_size = `head mold (lbs)`) %>%  #this week starts on a monday, which matches our mark switch day
+  select(-`head mold (lbs)`)
+
+# CWT tag summary - individuals ####
+
+CWTlog.indiv25 <- fish25 %>% 
+  filter(!is.na(tag_code), fate %in% "live") %>% 
+  group_by(isoweek,date, site, tag_code, head_mold_size) %>% 
+  summarize(inj_n = sum(ifelse(!is.na(tag_code),count,0), na.rm = TRUE)) %>%    #note that in this version, sacrifices and morts are not included in injected
+  left_join(CWTretention25, by=c("isoweek","tag_code","head_mold_size")) 
+CWTlog.indiv25
+
+CWTlog.indiv25summary <- CWTlog.indiv25 %>% #use mean retention when did not have week/code-specific
+  mutate(weekly.retention = ifelse(is.na(weekly.retention),mean(CWTlog.indiv25$weekly.retention, na.rm=T),
+                                   weekly.retention), 
+  retained.est = inj_n*weekly.retention) %>% 
   group_by(tag_code) %>% 
-  summarize(n = sum(r_sample_size, na.rm=T),n.retained = sum(r_retention_n, na.rm=T),
-            n.lost = n-n.retained,
-            weekly.retention = ifelse(mean(retention.rt, na.rm=T) %in% NaN, 1,
-                                      mean(retention.rt, na.rm=T)))
-CWTretention25bycode
+  summarize(injected = sum(inj_n),est.retained = round(sum(retained.est),0)) %>%
+  mutate(estd.lost = injected-est.retained) %>% 
+  left_join(n.retagged25, by="tag_code") %>% 
+  mutate(est.oceanreleases = est.retained+n.retagged)
+#write_csv(CWTlog.indiv24summary,"CWT24logindiv.csv")
+CWTlog.indiv25summary
 
-ave.meristics25 <- read_excel("toboggan_smolt_dataentry_2025_copy28-Aug-2025.xlsx", 
-                            sheet="individualfish") %>% 
+ave.CWTmeristics25 <- fish25 %>% 
   group_by(tag_code) %>% 
-  summarize(n.measured = length(!is.na(fork_length_mm)), ave.FL = mean(fork_length_mm, na.rm=T),
-            ave.wt = mean(weight_g, na.rm=T))
-ave.meristics25
+  summarize(n.measured = length(!is.na(fork_length_mm)), ave.FL = round(mean(fork_length_mm, na.rm=T),1),
+            sd.FL = round(sd(fork_length_mm, na.rm=T),1), ave.wt = round(mean(weight_g, na.rm=T),1),
+            sd.wt = round(sd(weight_g, na.rm=T),1))
+ave.CWTmeristics25
+
+CWT.tag.summary2025 <- CWTlog.indiv25summary %>% 
+  left_join(ave.CWTmeristics25, by="tag_code") %>% 
+  arrange(ave.FL)
+CWT.tag.summary2025 # copy over to report
+#write_csv(CWT.tag.summary2025,"CWT.tag.summary2025.csv")
+            
 
 
 
-             
+
 ##### Effort ####
 
-effort24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Dec-2025.xlsx", 
+effort25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx", 
                      sheet="effort",
                      col_types = c("guess","date","text","text","text",
                                    "date","date","guess","guess",
@@ -447,30 +499,16 @@ effort24 <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Dec-2025.xlsx
          isoweek = isoweek(date))
          #crew.duration = duration*crew.members)
 
-##### Individual fish ####
-
-fish <- read_excel("toboggan_smolt_dataentry_FINAL 2024-copy19-Dec-2025.xlsx", 
-                   sheet="individualfish") %>% 
-  mutate(year=year(date),arrive.hr = hour(arrival_time_24h), 
-         arrive.min = minute(arrival_time_24h),
-         arrive.datetime = ymd_hm(paste(date,arrive.hr,arrive.min)),
-         isoweek = isoweek(date),julian = yday(date)) %>% 
-  mutate(fake.date = as_date(julian-1, origin = "2024-01-01")) 
-
-
-
-
-
 # summarize effort:
 
-effort24 %>% 
+effort25 %>% 
   group_by(year) %>% 
   summarize(start.date = as_date(first(date)), 
             finish.date = as_date(last(date)),
             days.total = length(unique(date)),
             duration.total = sum(duration, na.rm=T)/60)
 
-ggplot(effort24)+
+ggplot(effort25)+
   geom_bar(aes(x=date,y=duration, fill=type), stat="identity")
 
 
@@ -479,7 +517,7 @@ ggplot(effort24)+
 #QA checks - are there any fish with A and R? Fix
 #Recode size into categories
 
-fish %>% 
+fish25 %>% 
   filter(!is.na(a_adclip)&!is.na(r_adclip))
 #should be 0
 
