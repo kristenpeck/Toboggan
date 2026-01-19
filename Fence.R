@@ -107,34 +107,35 @@ plot.daily.co2324
 # ggsave(plot = plot.daily.co2324, filename = "plot.daily.co2324.png", device="png",
 #        width=6, height=4)
 
-#interpolating missing fish in lay down year
-library(tidyhydat)
-
-hy_stations(station_number = "08EE012")
-simp.flows.real.raw <- realtime_dd(station_number = "08EE012")
-
-simp.flows.real.raw <- read_csv("08EE012_QR_20241129T0104.csv",skip = 10,
-                               col_types = c("c","?","?","?","?"),
-                               col_names = c("Date","Parameter","Value","Approval","Qualifier")) %>% 
-  mutate(Date = ymd(substr(Date,1,10)), Parameter = "Flow") %>% 
-  group_by(Date, Parameter) %>% 
-  summarize(ave.flow = mean(Value, na.rm=T)) %>% #ave daily flow 
-  select(Date,Parameter, Value=ave.flow) %>% 
-  mutate(Year = year(Date), fyear = as.factor(Year),
-         julian = yday(Date),fake.date = as_date(julian-1,origin="2024-01-01"),
-         STATION_NUMBER = "08EE012")
-
-
-plot.daily.co.adult <- ggplot(daily.co[daily.co$year %in% 2024,])+
-  geom_bar(aes(x=fake.date, y=total), stat = "identity")+
-  geom_line(data = simp.flows.real.raw, aes(x=fake.date, y= Value*100), col="blue")+
-  facet_wrap(~year)+
-  labs(x="date",y="total daily coho")+
-  scale_x_date(limits = c(ymd("2024-08-12"),ymd("2024-11-01")), 
-               date_breaks = "1 week", date_labels = "%b-%d")+
-  theme_bw()+
-  theme(axis.text.x = element_text(hjust=1, angle=45))
-plot.daily.co.adult
+# #interpolating missing fish in lay down year # note that this script
+# # was moved over to Environmental.R
+# library(tidyhydat)
+# 
+# hy_stations(station_number = "08EE012")
+# simp.flows.real.raw <- realtime_dd(station_number = "08EE012")
+# 
+# simp.flows.real.raw <- read_csv("08EE012_QR_20241129T0104.csv",skip = 10,
+#                                col_types = c("c","?","?","?","?"),
+#                                col_names = c("Date","Parameter","Value","Approval","Qualifier")) %>% 
+#   mutate(Date = ymd(substr(Date,1,10)), Parameter = "Flow") %>% 
+#   group_by(Date, Parameter) %>% 
+#   summarize(ave.flow = mean(Value, na.rm=T)) %>% #ave daily flow 
+#   select(Date,Parameter, Value=ave.flow) %>% 
+#   mutate(Year = year(Date), fyear = as.factor(Year),
+#          julian = yday(Date),fake.date = as_date(julian-1,origin="2024-01-01"),
+#          STATION_NUMBER = "08EE012")
+# 
+# 
+# plot.daily.co.adult <- ggplot(daily.co[daily.co$year %in% 2024,])+
+#   geom_bar(aes(x=fake.date, y=total), stat = "identity")+
+#   geom_line(data = simp.flows.real.raw, aes(x=fake.date, y= Value*100), col="blue")+
+#   facet_wrap(~year)+
+#   labs(x="date",y="total daily coho")+
+#   scale_x_date(limits = c(ymd("2024-08-12"),ymd("2024-11-01")), 
+#                date_breaks = "1 week", date_labels = "%b-%d")+
+#   theme_bw()+
+#   theme(axis.text.x = element_text(hjust=1, angle=45))
+# plot.daily.co.adult
 
 # ggsave(plot = plot.daily.co.adult, filename = "plot.daily.co.adult.png", device="png",
 #        width=6, height=4)
