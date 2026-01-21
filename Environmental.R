@@ -66,7 +66,8 @@ plot.daily.co.smolt <- ggplot()+
   theme_bw()+
   theme(axis.text.x = element_text(hjust=1, angle=45),
         axis.title.y = element_text(color = "gray50"),
-        axis.title.y.right = element_text(color = "blue"))
+        axis.title.y.right = element_text(color = "blue"),
+        axis.text.y.right = element_text(color = "blue"))
 plot.daily.co.smolt
 
 # ggsave(plot=plot.daily.co.smolt, filename = "plot.daily.discharge.smolt.24.png",
