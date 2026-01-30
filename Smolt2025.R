@@ -49,7 +49,7 @@ n.retagged25 <- CWTretention25 %>%
 
 #size and headmold key
 
-size.headmold.key25 <- data.frame(head_mold_size = c(NA,unique(CWT25$head_mold_size)),
+size.headmold.key25 <- data.frame(head_mold_size = c(NA,unique(na.omit(CWT25$head_mold_size))),
                                   category = c("XS","S","M","L"),
                                   length_range_mm = c("<70","70-85","86-115","116-190"))
 
@@ -60,7 +60,8 @@ fish25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx",
   mutate(fate = ifelse(!is.na(sacrifice),"sacrifice",
                        ifelse(!is.na(mort),"mort","live"))) %>%
   mutate(tag.status = ifelse(!is.na(a_adclip) & fate %in% "live","A",
-                             ifelse(!is.na(r_adclip),"R",NA))) %>%
+                             ifelse(!is.na(r_adclip),"R",
+                                    ifelse(!is.na(r_adclip),"R",NA)))) %>%
   mutate(isoweek = isoweek(date), yday = yday(date),week.yday = as.numeric(paste0(isoweek,".",yday)),
          head_mold_size = `head mold (lbs)`) %>%  #this week starts on a monday, which matches our mark switch day
   select(-`head mold (lbs)`)
