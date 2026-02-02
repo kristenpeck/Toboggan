@@ -26,7 +26,9 @@ options(scipen=999)
 
 ##### CWT retention ####
 
-CWT25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx",
+file.name = "toboggan_smolt_dataentry_2025_copy30-Jan-2026.xlsx"
+
+CWT25 <- read_excel(file.name,
                     sheet="cwt_log") %>%
   mutate(isoweek = isoweek(tag_date),
          mort_n = ifelse(is.na(mort_n),0,mort_n),
@@ -54,17 +56,43 @@ size.headmold.key25 <- data.frame(head_mold_size = c(NA,unique(na.omit(CWT25$hea
                                   length_range_mm = c("<70","70-85","86-115","116-190"))
 
 # Indiv fish - remake into first tagging and recap in same columns with sacrifice or mort noted ####
-fish25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx",
+fish25<- read_excel(file.name,
                      sheet="individualfish") %>%
-  filter(species %in% c("co-w","co-a"), size_cwt %in% c(NA, "S","M","L")) %>%
+  filter( size_cwt %in% c(NA,"Unknown","S","M","L")) %>% #species %in% c("co-w","co-a") changed to general
   mutate(fate = ifelse(!is.na(sacrifice),"sacrifice",
                        ifelse(!is.na(mort),"mort","live"))) %>%
   mutate(tag.status = ifelse(!is.na(a_adclip) & fate %in% "live","A",
                              ifelse(!is.na(r_adclip),"R",
                                     ifelse(!is.na(r_adclip),"R",NA)))) %>%
+  mutate(species = ifelse(species %in% "co-a" & r_caudalclip %in% "none", "co-h",
+                          ifelse(species %in% "co-a" & r_caudalclip%in% c("top","bottom"),"co-w.r",species))) %>% 
+  mutate(release.site = ifelse(date >= ymd("2025-06-19") & 
+                                 a_caudalclip %in% c("top","bottom"), "barn",site)) %>% # this was after teh barn trap was pulled, released fence fish up at same spot
   mutate(isoweek = isoweek(date), yday = yday(date),week.yday = as.numeric(paste0(isoweek,".",yday)),
          head_mold_size = `head mold (lbs)`) %>%  #this week starts on a monday, which matches our mark switch day
   select(-`head mold (lbs)`)
+
+
+
+#summary table
+
+fish25 %>% 
+  mutate(species = recode(species,`co-w`="Coho (wild)",
+                `co-w.r`="Coho (wild) recap",
+                `co-h`="Coho (hatchery)", 
+                `st/rb`="Steelhead or Rainbow trout", 
+                `bt/dv`="Bull trout or Dolly varden", 
+                 ct="Cutthroat", 
+                 mw="Mountain whitefish", 
+                 ch="Chinook", 
+                pk="Pink")) %>% 
+  group_by(species, site) %>% 
+  summarise(n=sum(count, na.rm=T)) %>%  
+  pivot_wider(names_from = site,values_from = n, values_fill = 0) %>% 
+  arrange(desc(fence)) %>% 
+  write_csv(file="2025speciessummary.csv")
+
+
 
 # CWT tag summary - individuals ####
 
@@ -72,13 +100,19 @@ CWTlog.indiv25 <- fish25 %>%
   filter(!is.na(tag_code), fate %in% "live") %>%
   group_by(isoweek,date, site, tag_code, head_mold_size) %>%
   summarize(inj_n = sum(ifelse(!is.na(tag_code),count,0), na.rm = TRUE)) %>%    #note that in this version, sacrifices and morts are not included in injected
-  left_join(CWTretention25, by=c("isoweek","tag_code","head_mold_size"))
+  left_join(CWTretention25, by=c("isoweek","tag_code","head_mold_size")) %>% 
+  mutate(weekly.retention = ifelse(tag_code %in% "18-60-75"&isoweek %in% 21, #write out exceptions where tag code switched halfway through week
+                                   0.9835979, weekly.retention)) %>% 
+  mutate(weekly.retention = ifelse(tag_code %in% "18-47-83"&isoweek %in% 23, 
+                                   1.000, weekly.retention)) %>% 
+  mutate(weekly.retention = ifelse(isoweek %in% c(19,26), 
+                                   1.000, weekly.retention))
 CWTlog.indiv25
 
 CWTlog.indiv25summary <- CWTlog.indiv25 %>% #use mean retention when did not have week/code-specific
-  mutate(weekly.retention = ifelse(is.na(weekly.retention),mean(CWTlog.indiv25$weekly.retention, na.rm=T),
-                                   weekly.retention),
-  retained.est = inj_n*weekly.retention) %>%
+  # mutate(weekly.retention = ifelse(is.na(weekly.retention),mean(CWTlog.indiv25$weekly.retention, na.rm=T),
+  #                                  weekly.retention),
+  mutate(retained.est = inj_n*weekly.retention) %>%
   group_by(tag_code) %>%
   summarize(injected = sum(inj_n),est.retained = round(sum(retained.est),0)) %>%
   mutate(estd.lost = injected-est.retained) %>%
@@ -98,7 +132,202 @@ CWT.tag.summary2025 <- CWTlog.indiv25summary %>%
   left_join(ave.CWTmeristics25, by="tag_code") %>%
   arrange(ave.FL)
 CWT.tag.summary2025 # copy over to report
-#write_csv(CWT.tag.summary2025,"CWT.tag.summary2025.csv")
+# write_csv(CWT.tag.summary2025,"CWT.tag.summary2025.csv")
+
+# population estimate
+
+# re-coding the last part of the season to include the fence fish that were released at the barn site:
+
+wcoho25 <- fish25 %>% 
+  filter(species %in% c("co-w","co-w.r")) #now this df only includes 70mm + co-w marks and recaps
+
+
+(m <- wcoho25 %>% 
+    filter(release.site %in% "barn",tag.status %in% "A") %>% 
+    summarize(m = sum(count, na.rm=T)))
+
+(r <- wcoho25 %>% 
+    filter(release.site %in% "fence", tag.status %in% "R") %>% 
+    summarize(r = sum(count, na.rm=T)))
+
+(c <- wcoho25 %>% 
+    filter(release.site %in% "fence") %>% 
+    summarize(c = sum(count, na.rm=T)))
+
+recapr::NChapman(m,c,r)
+recapr::vChapman(m,c,r)
+recapr::seChapman(m,c,r)
+
+#trap efficiency of fence RST
+c/NChapman(m,c,r)*100
+
+##### SPAS #####
+#weekly stratified estimator
+
+#visualize weekly marks
+
+mark.recaps25barn <- wcoho25 %>% 
+  filter(release.site %in% "barn", tag.status %in% "A") %>% 
+  group_by(yday, week.yday, date, isoweek, release.site) %>% 
+  summarize(top = sum(ifelse(a_caudalclip %in% "top", count, 0), na.rm = TRUE),
+            bottom = sum(ifelse(a_caudalclip %in% "bottom", count, 0), na.rm = TRUE),  
+            none = sum(ifelse(a_caudalclip %in% "none", count, 0), na.rm = TRUE)) %>% 
+  pivot_longer(-c(yday,week.yday,date,isoweek,release.site))
+
+mark.recaps25fence <- wcoho25 %>% 
+  filter(site %in% "fence", tag.status %in% "R") %>% 
+  group_by(yday, week.yday, date, isoweek, site) %>% 
+  summarize(top = sum(ifelse(r_caudalclip %in% "top", count, 0), na.rm = TRUE),
+            bottom = sum(ifelse(r_caudalclip %in% "bottom", count, 0), na.rm = TRUE), 
+            none = sum(ifelse(r_caudalclip %in% "none", count, 0), na.rm = TRUE)) %>% 
+  mutate(prop.top = ifelse(!is.na(top/(top+bottom)),top/(top+bottom),0),
+         none.tops = ifelse(isoweek >=19,round(none*prop.top,0),0), 
+         none.bottoms = ifelse(isoweek >=19,round(none*(1-prop.top),0),0),
+         top = top+none.tops, bottom = bottom+none.bottoms,
+         none = none-(none.tops+none.bottoms)) %>% 
+  select(-c(prop.top,none.tops, none.bottoms)) %>% 
+  pivot_longer(-c(yday,week.yday,date,isoweek,site))
+
+mark.recaps25 <- mark.recaps25barn %>% 
+  rbind(mark.recaps25fence)
+
+cols_caudal = c(bottom = "gray20",top= "gray75")#, none= "red"
+
+plot.mark.timing25bubble <- ggplot()+
+  geom_point(data=mark.recaps25barn[mark.recaps25barn$value >0,],
+             aes(x=yday, y=-10, col=name, size=value))+
+  geom_bar(data=mark.recaps25fence, 
+           aes(x=yday, y=value, fill=name),stat = "identity", position = "stack")+
+  scale_x_continuous(breaks=seq(min(mark.recaps25$yday),max(mark.recaps25$yday),2))+
+  scale_color_manual(values = cols_caudal)+
+  scale_fill_manual(values = cols_caudal)+
+  scale_size_continuous(range = c(.5,5),# adjust point sizes
+                        breaks = seq(min(mark.recaps25$value),max(mark.recaps25$value),200)) +             
+  theme_bw()+ 
+  theme(axis.text.x = element_text(angle=45, hjust = 1))+
+  guides(color = "none")+
+  labs(fill="Caudal \nMark",size="# Marks\nApplied", x="Julian Day", y="# Coho Recaptures")
+plot.mark.timing25bubble
+
+
+#set up matrix for SPAS:
+
+mark.recaps25fence.weekly <- mark.recaps25fence %>% 
+  filter(site %in% "fence") %>% 
+  group_by(isoweek) %>% 
+  summarize(r.top = sum(ifelse(name %in% "top", value, 0), na.rm = TRUE),
+            r.bottom = sum(ifelse(name %in% "bottom", value, 0), na.rm = TRUE)) 
+mark.recaps25fence.weekly
+
+mark.recaps25barn.weekly <- mark.recaps25barn %>% 
+  filter(release.site %in% "barn") %>% 
+  group_by(isoweek) %>% 
+  summarize(a.top = sum(ifelse(name %in% "top", value, 0), na.rm = TRUE),
+            a.bottom = sum(ifelse(name %in% "bottom", value, 0), na.rm = TRUE)) %>% 
+  left_join(mark.recaps25fence.weekly) 
+mark.recaps25barn.weekly
+
+
+# mark.recaps25barn.weekly <- fish25 %>% 
+#   left_join(mark.recaps25fence.weekly) %>% 
+#   filter(release.site %in% "barn", tag.status %in% "A") %>% 
+#   group_by(isoweek) %>% 
+#   summarize(a.top = sum(ifelse(a_caudalclip %in% "top", count, 0), na.rm = TRUE),
+#             a.bottom = sum(ifelse(a_caudalclip %in% "bottom", count, 0), na.rm = TRUE),
+#             a.1 = sum(ifelse(isoweek %in% 19, count, 0), na.rm = TRUE),
+#             a.2 = sum(ifelse(isoweek %in% 20, count, 0), na.rm = TRUE),
+#             a.3 = sum(ifelse(isoweek %in% 21, count, 0), na.rm = TRUE),
+#             a.4 = sum(ifelse(isoweek %in% 22, count, 0), na.rm = TRUE),
+#             a.5 = sum(ifelse(isoweek %in% 23, count, 0), na.rm = TRUE),
+#             a.6 = sum(ifelse(isoweek %in% 24, count, 0), na.rm = TRUE),
+#             a.7 = sum(ifelse(isoweek %in% 25, count, 0), na.rm = TRUE),
+#             a.8 = sum(ifelse(isoweek %in% 26, count, 0), na.rm = TRUE),
+#   ) 
+#         none = sum(ifelse(a_caudalclip %in% "none", count, 0), na.rm = TRUE)) %>% 
+#pivot_longer(-c(isoweek,site)) 
+ 
+
+
+
+fish25 %>% 
+  filter(site %in% "fence") %>% 
+  group_by(isoweek) %>% 
+  summarize(r.na= sum(ifelse(is.na(r_adclip), count, 0), na.rm=TRUE))
+
+# mark.recaps25fence.weekly %>% # cannot quite seem to set up this matrix so did it manually below:
+#   mutate(s_1 = )
+
+setupfile_TBC2025.csv <- textConnection("
+  10, 9,  0,  0,  0,  0,  0,  0,  51      
+  0,  31, 43, 0,  0,  0,  0,  0,  126
+  0,  0,  210,41, 0,  0,  0,  0,  798
+  0,  0,  0,  146,257,0,  0,  0,  1377
+  0,  0,  0,  0,  226,27, 0,  0,  1112
+  0,  0,  0,  0,  0,  71, 37, 0,  248
+  0,  0,  0,  0,  0,  0,  126,5,  89
+  0,  0,  0,  0,  0,  0,  0,  14, 82
+  149,219,2739,3201,4123,1209,799,181,0")
+
+x <- as.matrix(read.csv(setupfile_TBC2025.csv, header=F))
+rownames(x) <- c(mark.recaps25.weekly$isoweek,"s+1")
+colnames(x) <- c(mark.recaps25.weekly$isoweek,"t+1")
+x
+
+res <- SPAS::SPAS.autopool(x)
+
+#basic LP:
+mod1 <- SPAS::SPAS.fit.model(x,
+                             model.id="Logical pooling to single row (LP)",
+                             row.pool.in=c(1,1,1,1,1,1,1,1), col.pool.in=1:8, 
+                             row.physical.pool=FALSE)
+SPAS::SPAS.print.model(mod1)
+
+
+#full stratification:
+mod2 <- SPAS::SPAS.fit.model(x,
+                             model.id="Full weekly strata",
+                             row.pool.in=1:8, col.pool.in=1:8)
+SPAS::SPAS.print.model(mod2)
+
+
+
+#auto (logical) pooling:
+mod3 <- SPAS::SPAS.fit.model(x,
+                             model.id="Auto (logical) pooling",
+                             row.pool.in=c(1,1,3,4,5,6,8,8), col.pool.in=1:8, 
+                             row.physical.pool=FALSE)
+SPAS::SPAS.print.model(mod3)
+
+model.list <- mget( ls()[grepl("^mod.$",ls())])
+names(model.list)
+
+
+report <- plyr::ldply(model.list, function(x){
+  #browser()
+  data.frame(#version=x$version,
+    model.id         = x$model.info$model.id,
+    s.a.pool         =-1+nrow(x$fit.setup$pooldata),
+    t.p.pool         =-1+ncol(x$fit.setup$pooldata),
+    logL.cond        = x$model.info$logL.cond,
+    np               = x$model.info$np,
+    AICc             = x$model.info$AICc,
+    gof.chisq        = round(x$gof$chisq,1),
+    gof.df           = x$gof$chisq.df,
+    gof.p            = round(x$gof$chisq.p,3),
+    Nhat             = round(x$est$real$N),
+    Nhat.se          = round(x$se $real$N))
+  
+})
+report
+
+report.table <- report %>% 
+  select(-c(.id,logL.cond,np)) %>% 
+  mutate(deltaAICc = round(AICc-min(AICc),2)) %>% 
+  select(model.id,s.a.pool,t.p.pool,AICc,deltaAICc,gof.chisq,gof.df,gof.p,Nhat,
+         Nhat.se) %>% 
+  arrange(deltaAICc)
+
+report.table
 
 
 
@@ -106,7 +335,7 @@ CWT.tag.summary2025 # copy over to report
 
 ##### Effort ####
 
-effort25 <- read_excel("toboggan_smolt_dataentry_2025_copy12-Jan-2026.xlsx",
+effort25 <- read_excel(file.name,
                      sheet="effort",
                      col_types = c("guess","date","text","text","text",
                                    "date","date","guess","guess",
