@@ -1,5 +1,6 @@
 ---
 title: "Toboggan Creek Coho Smolt Program 2024"
+
 author: "Annie Kim and Kristen Peck, DFO North Coast Stock Assessment Branch"
 date: "`r format(Sys.time(), '%Y-%m-%d')`"
 output: 
@@ -276,7 +277,7 @@ mortality_summary %>%
 ```{r Figure 4, fig.cap="Figure 4. Log-log weight-length individual values and relationship for coho smolts. The scatterplot presents individual observations of fork length (mm) and weight (g), with a fitted regression line overlaid in blue and the regression described in the formula within the plot.", results = 'hide'}
 df_fish_coho <- df_fish %>% 
    filter(
-    species %in% c("Coho (wild)", "Coho (hatchery)"),  # Keep only co-w and co-a
+    species %in% c("Coho (wild)"),  # Keep only co-w and co-a
     !is.na(fork_length_mm), 
     !is.na(weight_g), 
     weight_g > 0, 
