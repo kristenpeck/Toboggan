@@ -209,7 +209,24 @@ plot.mark.timing25bubble <- ggplot()+
   labs(fill="Caudal \nMark",size="# Marks\nApplied", x="Julian Day", y="# Coho Recaptures")
 plot.mark.timing25bubble
 
+plot.mark.timing25mirror <- ggplot()+
+  geom_bar(data=mark.recaps25fence, 
+           aes(x=yday, y=value*-1, fill=name),stat = "identity", position = "dodge")+
+  geom_bar(data=mark.recaps25barn, 
+           aes(x=yday, y=value, fill=name),stat = "identity", position = "dodge")+
+  geom_hline(aes(yintercept =0), col="black")+
+  geom_text(aes(x=128,y=150,label="released:"))+
+  geom_text(aes(x=129,y=-110,label="recaptured:"))+
+  scale_x_continuous(breaks=seq(min(mark.recaps25$yday),max(mark.recaps25$yday),2))+
+  scale_color_manual(values = cols_caudal)+
+  scale_fill_manual(values = cols_caudal)+
+  theme_bw()+ 
+  theme(axis.text.x = element_text(angle=45, hjust = 1))+
+  labs(fill="Caudal \nMark", x="Julian Day", y="# Coho Recaptured vs. Marked")
+plot.mark.timing25mirror
 
+ggsave(plot.mark.timing25mirror, filename = "plot.mark.timing25mirror.png",
+       width=6,height=4)
 #set up matrix for SPAS:
 
 mark.recaps25fence.weekly <- mark.recaps25fence %>% 
@@ -256,6 +273,7 @@ fish25 %>%
 
 # mark.recaps25fence.weekly %>% # cannot quite seem to set up this matrix so did it manually below:
 #   mutate(s_1 = )
+#manual table setup. See "automatic pooling" vignette for setup info
 
 setupfile_TBC2025.csv <- textConnection("
   10, 9,  0,  0,  0,  0,  0,  0,  51      
@@ -328,7 +346,7 @@ report.table <- report %>%
   arrange(deltaAICc)
 
 report.table
-
+write_csv(report.table, "2025TBCsmoltSPASresults.csv")
 
 
 
