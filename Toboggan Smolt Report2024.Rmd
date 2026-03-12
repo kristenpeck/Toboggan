@@ -414,8 +414,8 @@ A comparison of mark-recapture estimators include a fully pooled Lincoln-Peterse
 ```{r Table 5 MR}
 
 kable(report.table,
-      col.names = c("Model","s","t","AICc","Delta AICc","gof.chisq", "gof.df", "gof.p",  "Nhat", "Nhat SE"),
-        caption = "Table 5. Summary of the number of injected smolts for each coded-wire tag. Coho were generally sorted by size for coded-wire tagging. Estimated retention was based on a subsample of tagged smolts each week held for 24 hours after initial tagging.", 
+      col.names = c("Model","s","t","AICc","Delta AICc","GOF Chi2", "GOF df", "GOF p",  "Nhat", "Nhat SE"),
+        caption = "Table 5. Comparison of candidate stratified population estimate models for the Toboggan Creek Smolt project. The Full weekly strata model did not pool any strata, the Auto (logical) pooling model pooled the first two and the last two weeks for the tagging season, and the Logical pooling to single row (LP) pooled all rows to essentially reduce to a Lincoln-Petersen estimate. s and t are the number of weekly strata of tagging and recapture, respectively, AICc is Akaike’s Information Criterion corrected for small sample sizes, GOF is a goodness of fit test, in this case a Chi2, df is degrees of freedom and p is probability. N is the population estimate of wild smolts and N̂  SE is the standard error around the estimate.", 
         format = "pandoc",full_width=T, latex_options = "HOLD_position",bootstrap_options = c("striped", "hover")
 )
 
