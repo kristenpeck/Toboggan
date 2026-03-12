@@ -101,13 +101,27 @@ CWTlog.indiv25 <- fish25 %>%
   group_by(isoweek,date, site, tag_code, head_mold_size) %>%
   summarize(inj_n = sum(ifelse(!is.na(tag_code),count,0), na.rm = TRUE)) %>%    #note that in this version, sacrifices and morts are not included in injected
   left_join(CWTretention25, by=c("isoweek","tag_code","head_mold_size")) %>% 
-  mutate(weekly.retention = ifelse(tag_code %in% "18-60-75"&isoweek %in% 21, #write out exceptions where tag code switched halfway through week
+  mutate(weekly.retention = ifelse(tag_code %in% "18-60-75"&isoweek %in% 21, #write out exceptions where tag code switched halfway through week. Should automate this
                                    0.9835979, weekly.retention)) %>% 
   mutate(weekly.retention = ifelse(tag_code %in% "18-47-83"&isoweek %in% 23, 
                                    1.000, weekly.retention)) %>% 
   mutate(weekly.retention = ifelse(isoweek %in% c(19,26), 
                                    1.000, weekly.retention))
 CWTlog.indiv25
+
+#cwt_log daily remake
+
+str(fish25)
+
+CWTlog.indiv25daily <- fish25 %>%
+  filter(!is.na(tag_code), fate %in% "live") %>%
+  group_by(date, site, tag_code, head_mold_size) %>%
+  summarize(inj_n = sum(ifelse(!is.na(tag_code),count,0), na.rm = TRUE),
+            mort_n = sum(ifelse(fate %in% "mort",count,0), na.rm = TRUE),
+            sacrifice = sum(ifelse(fate %in% "sacrifice",count,0), na.rm = TRUE)) 
+CWTlog.indiv25daily
+
+#summary of codes and retention
 
 CWTlog.indiv25summary <- CWTlog.indiv25 %>% #use mean retention when did not have week/code-specific
   # mutate(weekly.retention = ifelse(is.na(weekly.retention),mean(CWTlog.indiv25$weekly.retention, na.rm=T),
@@ -133,6 +147,9 @@ CWT.tag.summary2025 <- CWTlog.indiv25summary %>%
   arrange(ave.FL)
 CWT.tag.summary2025 # copy over to report
 # write_csv(CWT.tag.summary2025,"CWT.tag.summary2025.csv")
+
+
+
 
 # population estimate
 
